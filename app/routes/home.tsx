@@ -3,6 +3,7 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import {
+	Badge,
 	Button,
 	Dialog,
 	Empty,
@@ -22,7 +23,20 @@ import {
 	useDeleteMailbox,
 	useMailboxes,
 } from "~/queries/mailboxes";
+import { useFolders } from "~/queries/folders";
 import { queryKeys } from "~/queries/keys";
+
+/** Shows the total unread count across all folders for a given mailbox. */
+function MailboxUnreadBadge({ mailboxId }: { mailboxId: string }) {
+	const { data: folders = [] } = useFolders(mailboxId);
+	const total = folders.reduce((sum, f) => sum + (f.unreadCount ?? 0), 0);
+	if (total === 0) return null;
+	return (
+		<Badge variant="secondary" aria-label={`${total} unread`}>
+			{total > 99 ? "99+" : total}
+		</Badge>
+	);
+}
 
 export function meta() {
 	return [{ title: "Agentic Inbox" }];
@@ -137,6 +151,12 @@ export default function HomeRoute() {
 			}))
 		: mailboxes;
 
+	// Map email → real mailbox ID so we can always pass the backend ID to the
+	// folders API regardless of whether isConfigured mode is active.
+	const emailToMailboxId = new Map(
+		mailboxes.map((m) => [m.email.toLowerCase(), m.id]),
+	);
+
 	const isLoading = !configData;
 
 	return (
@@ -168,45 +188,50 @@ export default function HomeRoute() {
 					</div>
 				) : accounts.length > 0 ? (
 					<div className="rounded-xl border border-kumo-line bg-kumo-base overflow-hidden">
-						{accounts.map((account, idx) => (
-							<RouterLink
-								key={account.id}
-								to={`/mailbox/${account.id}`}
-								className={`group flex items-center gap-4 px-5 py-4 no-underline transition-colors hover:bg-kumo-tint ${
-									idx > 0 ? "border-t border-kumo-line" : ""
-								}`}
-							>
-								<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-kumo-fill text-sm font-bold text-kumo-default">
-									{account.name.charAt(0).toUpperCase()}
-								</div>
-								<div className="min-w-0 flex-1">
-									<div className="text-sm font-medium text-kumo-default truncate">
-										{account.name}
+						{accounts.map((account, idx) => {
+							const realMailboxId =
+								emailToMailboxId.get(account.email.toLowerCase()) ?? account.id;
+							return (
+								<RouterLink
+									key={account.id}
+									to={`/mailbox/${account.id}`}
+									className={`group flex items-center gap-4 px-5 py-4 no-underline transition-colors hover:bg-kumo-tint ${
+										idx > 0 ? "border-t border-kumo-line" : ""
+									}`}
+								>
+									<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-kumo-fill text-sm font-bold text-kumo-default">
+										{account.name.charAt(0).toUpperCase()}
 									</div>
-									<div className="text-sm text-kumo-subtle">
-										{account.email}
+									<div className="min-w-0 flex-1">
+										<div className="text-sm font-medium text-kumo-default truncate">
+											{account.name}
+										</div>
+										<div className="text-sm text-kumo-subtle">
+											{account.email}
+										</div>
 									</div>
-								</div>
-								{!isConfigured && (
-									<Button
-										variant="ghost"
-										size="sm"
-										shape="square"
-										icon={<TrashIcon size={16} />}
-										aria-label={`Delete mailbox ${account.email}`}
-										onClick={(e) => {
-											e.preventDefault();
-											e.stopPropagation();
-											setMailboxToDelete({
-												id: account.id,
-												email: account.email,
-											});
-											setIsDeleteOpen(true);
-										}}
-									/>
-								)}
-							</RouterLink>
-						))}
+									<MailboxUnreadBadge mailboxId={realMailboxId} />
+									{!isConfigured && (
+										<Button
+											variant="ghost"
+											size="sm"
+											shape="square"
+											icon={<TrashIcon size={16} />}
+											aria-label={`Delete mailbox ${account.email}`}
+											onClick={(e) => {
+												e.preventDefault();
+												e.stopPropagation();
+												setMailboxToDelete({
+													id: account.id,
+													email: account.email,
+												});
+												setIsDeleteOpen(true);
+											}}
+										/>
+									)}
+								</RouterLink>
+							);
+						})}
 					</div>
 				) : (
 					<div className="rounded-xl border border-kumo-line bg-kumo-base py-16 px-6">
