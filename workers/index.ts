@@ -392,9 +392,26 @@ async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env
 
 	const originalMessageId = parsedEmail.messageId ? extractMsgId(parsedEmail.messageId) : null;
 
-	await stub.createEmail(Folders.INBOX, {
+	const senderAddress = (parsedEmail.from?.address || "").toLowerCase();
+
+	let targetFolder = Folders.INBOX;
+	try {
+		const settingsObjForBlock = await env.BUCKET.get(`mailboxes/${mailboxId}.json`);
+		if (settingsObjForBlock) {
+			const settingsForBlock = await settingsObjForBlock.json<Record<string, unknown>>();
+			const blockedSenders = (settingsForBlock.blockedSenders as string[] | undefined) ?? [];
+			if (blockedSenders.map((s) => s.toLowerCase()).includes(senderAddress)) {
+				targetFolder = Folders.SPAM;
+				console.log(`Blocked sender ${senderAddress}: routing to spam`);
+			}
+		}
+	} catch {
+		// Fall through — deliver to inbox
+	}
+
+	await stub.createEmail(targetFolder, {
 		id: messageId, subject: parsedEmail.subject || "",
-		sender: (parsedEmail.from?.address || "").toLowerCase(), recipient: allRecipients.join(", "),
+		sender: senderAddress, recipient: allRecipients.join(", "),
 		cc: ccRecipients.join(", ") || null, bcc: bccRecipients.join(", ") || null,
 		date: new Date().toISOString(), // uses receive time, not the email's Date header
 		body: parsedEmail.html || parsedEmail.text || "",
@@ -402,19 +419,22 @@ async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env
 		thread_id: threadId, message_id: originalMessageId, raw_headers: JSON.stringify(parsedEmail.headers),
 	}, attachmentData);
 
+	// Blocked senders are routed to spam and never auto-drafted.
 	// Check whether auto-draft is enabled for this mailbox before triggering the agent.
 	// Default is enabled (true) if the setting is absent.
-	let autoDraftEnabled = true;
-	try {
-		const settingsObj = await env.BUCKET.get(`mailboxes/${mailboxId}.json`);
-		if (settingsObj) {
-			const settings = await settingsObj.json<Record<string, unknown>>();
-			if (settings.autoDraftEnabled === false) {
-				autoDraftEnabled = false;
+	let autoDraftEnabled = targetFolder !== Folders.SPAM;
+	if (autoDraftEnabled) {
+		try {
+			const settingsObj = await env.BUCKET.get(`mailboxes/${mailboxId}.json`);
+			if (settingsObj) {
+				const settings = await settingsObj.json<Record<string, unknown>>();
+				if (settings.autoDraftEnabled === false) {
+					autoDraftEnabled = false;
+				}
 			}
+		} catch {
+			// Fall through — default to enabled
 		}
-	} catch {
-		// Fall through — default to enabled
 	}
 
 	if (autoDraftEnabled) {

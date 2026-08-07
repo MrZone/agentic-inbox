@@ -14,7 +14,7 @@
 		// TEAM_DOMAIN may be the base Access URL or the full /cdn-cgi/access/certs URL.
 		// The worker now fails closed outside local development if Access is not configured.
 		"DOMAINS": "agentic-inbox.zqx10104.workers.dev",
-		"EMAIL_ADDRESSES": ["support@introvideo.io","support@nanoimg.ai", "support@cluesbysamanswer.com", "support@whisperweb.net"]
+		"EMAIL_ADDRESSES": ["support@introvideo.io","support@nanoimg.ai", "support@cluesbysamanswer.com", "support@whisperweb.net", "support@vidprompt.ai", "support@psltester.com"]
 	},
 	"send_email": [
 		{

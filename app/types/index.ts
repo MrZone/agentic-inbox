@@ -15,6 +15,7 @@ export interface MailboxSettings {
 	autoReply?: { enabled: boolean; subject: string; message: string };
 	agentSystemPrompt?: string;
 	autoDraftEnabled?: boolean;
+	blockedSenders?: string[];
 }
 
 export interface Mailbox {

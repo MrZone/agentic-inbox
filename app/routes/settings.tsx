@@ -3,7 +3,7 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import { Badge, Button, Input, Loader, Switch, useKumoToastManager } from "@cloudflare/kumo";
-import { RobotIcon, ArrowCounterClockwiseIcon } from "@phosphor-icons/react";
+import { RobotIcon, ArrowCounterClockwiseIcon, ProhibitIcon, TrashIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router";
 import { useMailbox, useUpdateMailbox } from "~/queries/mailboxes";
@@ -21,6 +21,8 @@ export default function SettingsRoute() {
 	const [displayName, setDisplayName] = useState("");
 	const [agentPrompt, setAgentPrompt] = useState("");
 	const [autoDraftEnabled, setAutoDraftEnabled] = useState(true);
+	const [blockedSenders, setBlockedSenders] = useState<string[]>([]);
+	const [newBlockedSender, setNewBlockedSender] = useState("");
 	const [isSaving, setIsSaving] = useState(false);
 
 	useEffect(() => {
@@ -28,6 +30,7 @@ export default function SettingsRoute() {
 			setDisplayName(mailbox.settings?.fromName || mailbox.name || "");
 			setAgentPrompt(mailbox.settings?.agentSystemPrompt || "");
 			setAutoDraftEnabled(mailbox.settings?.autoDraftEnabled !== false);
+			setBlockedSenders(mailbox.settings?.blockedSenders || []);
 		}
 	}, [mailbox]);
 
@@ -39,6 +42,7 @@ export default function SettingsRoute() {
 			fromName: displayName,
 			agentSystemPrompt: agentPrompt.trim() || undefined,
 			autoDraftEnabled,
+			blockedSenders,
 		};
 		try {
 			await updateMailboxMutation.mutateAsync({ mailboxId, settings });
@@ -107,6 +111,65 @@ export default function SettingsRoute() {
 					<p className="text-xs text-kumo-subtle mt-3">
 						When enabled, the AI agent automatically drafts a reply for every incoming email and saves it to the Drafts folder. Turn off to disable all automatic drafting.
 					</p>
+				</div>
+
+				{/* Blocked Senders */}
+				<div className="rounded-lg border border-kumo-line bg-kumo-base p-5">
+					<div className="flex items-center gap-2 mb-3">
+						<ProhibitIcon size={16} weight="duotone" className="text-kumo-subtle" />
+						<span className="text-sm font-medium text-kumo-default">Blocked Senders</span>
+						{blockedSenders.length > 0 && (
+							<Badge variant="secondary">{blockedSenders.length}</Badge>
+						)}
+					</div>
+					<p className="text-xs text-kumo-subtle mb-3">
+						Emails from these addresses are automatically routed to Spam and never auto-drafted.
+					</p>
+					<div className="flex gap-2 mb-3">
+						<Input
+							placeholder="example@domain.com"
+							value={newBlockedSender}
+							onChange={(e) => setNewBlockedSender(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter") {
+									e.preventDefault();
+									const trimmed = newBlockedSender.trim().toLowerCase();
+									if (trimmed && !blockedSenders.includes(trimmed)) {
+										setBlockedSenders([...blockedSenders, trimmed]);
+									}
+									setNewBlockedSender("");
+								}
+							}}
+						/>
+						<Button
+							variant="secondary"
+							onClick={() => {
+								const trimmed = newBlockedSender.trim().toLowerCase();
+								if (trimmed && !blockedSenders.includes(trimmed)) {
+									setBlockedSenders([...blockedSenders, trimmed]);
+								}
+								setNewBlockedSender("");
+							}}
+						>
+							Add
+						</Button>
+					</div>
+					{blockedSenders.length > 0 && (
+						<ul className="space-y-1">
+							{blockedSenders.map((sender) => (
+								<li key={sender} className="flex items-center justify-between rounded-md bg-kumo-recessed px-3 py-1.5">
+									<span className="text-xs text-kumo-default font-mono">{sender}</span>
+									<button
+										type="button"
+										onClick={() => setBlockedSenders(blockedSenders.filter((s) => s !== sender))}
+										className="text-kumo-subtle hover:text-kumo-default"
+									>
+										<TrashIcon size={14} />
+									</button>
+								</li>
+							))}
+						</ul>
+					)}
 				</div>
 
 				{/* Agent System Prompt */}
