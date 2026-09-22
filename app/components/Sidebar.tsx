@@ -172,22 +172,24 @@ export default function Sidebar() {
 						)}
 					/>
 					<DropdownMenu.Content align="start" className="w-64">
-						<DropdownMenu.Label>Mailboxes</DropdownMenu.Label>
-						{mailboxes.map((m) => (
-							<DropdownMenu.Item
-								key={m.id}
-								selected={m.id === mailboxId}
-								onClick={() => handleSwitchMailbox(m.id)}
-							>
-								<div className="min-w-0 flex-1">
-									<div className="truncate">{m.name || m.email}</div>
-									<div className="truncate text-xs text-kumo-subtle">
-										{m.email}
+						<DropdownMenu.Group>
+							<DropdownMenu.Label>Mailboxes</DropdownMenu.Label>
+							{mailboxes.map((m) => (
+								<DropdownMenu.Item
+									key={m.id}
+									selected={m.id === mailboxId}
+									onClick={() => handleSwitchMailbox(m.id)}
+								>
+									<div className="min-w-0 flex-1">
+										<div className="truncate">{m.name || m.email}</div>
+										<div className="truncate text-xs text-kumo-subtle">
+											{m.email}
+										</div>
 									</div>
-								</div>
-								<SwitcherUnreadBadge mailboxId={m.id} />
-							</DropdownMenu.Item>
-						))}
+									<SwitcherUnreadBadge mailboxId={m.id} />
+								</DropdownMenu.Item>
+							))}
+						</DropdownMenu.Group>
 						<DropdownMenu.Separator />
 						<DropdownMenu.Item
 							icon={<ListBulletsIcon size={16} />}
