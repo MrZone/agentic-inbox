@@ -23,6 +23,7 @@ import {
 	ScrollRestoration,
 } from "react-router";
 import { ApiError } from "~/services/api";
+import { useAutoCreateMailboxes } from "~/queries/mailboxes";
 import "./index.css";
 
 function makeQueryClient() {
@@ -109,6 +110,13 @@ export function HydrateFallback() {
 	);
 }
 
+// Runs the mailbox auto-create effect once per app load. Split out from App
+// so the query hook it uses runs inside QueryClientProvider.
+function AutoCreateMailboxesEffect() {
+	useAutoCreateMailboxes();
+	return null;
+}
+
 export default function App() {
 	// Use useState to ensure each SSR request gets a fresh client while the
 	// browser reuses the same singleton across navigations.
@@ -118,6 +126,7 @@ export default function App() {
 			<LinkProvider component={KumoLink}>
 				<TooltipProvider>
 					<Toasty>
+						<AutoCreateMailboxesEffect />
 						<Outlet />
 					</Toasty>
 				</TooltipProvider>

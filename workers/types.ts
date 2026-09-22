@@ -5,4 +5,5 @@
 export interface Env extends Cloudflare.Env {
 	POLICY_AUD: string;
 	TEAM_DOMAIN: string;
+	// DEFAULT_MAILBOX and FEISHU_WEBHOOK_URL come from Cloudflare.Env (wrangler.jsonc vars).
 }

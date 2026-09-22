@@ -2,12 +2,13 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-import { Badge, Button, Dialog, Input, Tooltip } from "@cloudflare/kumo";
+import { Badge, Button, Dialog, DropdownMenu, Input, Tooltip } from "@cloudflare/kumo";
 import {
 	ArchiveIcon,
-	CaretLeftIcon,
+	CaretUpDownIcon,
 	FileIcon,
 	FolderIcon,
+	ListBulletsIcon,
 	PaperPlaneTiltIcon,
 	PencilSimpleIcon,
 	PlusIcon,
@@ -18,8 +19,20 @@ import { useMemo, useState } from "react";
 import { NavLink, useNavigate, useParams } from "react-router";
 import { Folders, SYSTEM_FOLDER_IDS } from "shared/folders";
 import { useCreateFolder, useFolders } from "~/queries/folders";
-import { useMailbox } from "~/queries/mailboxes";
+import { useMailbox, useMailboxes } from "~/queries/mailboxes";
 import { useUIStore } from "~/hooks/useUIStore";
+
+/** Shows the total unread count across all folders for a given mailbox. */
+function SwitcherUnreadBadge({ mailboxId }: { mailboxId: string }) {
+	const { data: folders = [] } = useFolders(mailboxId);
+	const total = folders.reduce((sum, f) => sum + (f.unreadCount ?? 0), 0);
+	if (total === 0) return null;
+	return (
+		<Badge variant="secondary" aria-label={`${total} unread`}>
+			{total > 99 ? "99+" : total}
+		</Badge>
+	);
+}
 
 const FOLDER_ICONS: Record<string, React.ReactNode> = {
 	[Folders.INBOX]: <TrayIcon size={18} weight="regular" />,
@@ -74,9 +87,13 @@ function FolderLink({
 }
 
 export default function Sidebar() {
-	const { mailboxId } = useParams<{ mailboxId: string }>();
+	const { mailboxId, folder: currentFolder } = useParams<{
+		mailboxId: string;
+		folder?: string;
+	}>();
 	const navigate = useNavigate();
 	const { data: folders = [] } = useFolders(mailboxId);
+	const { data: mailboxes = [] } = useMailboxes();
 	const createFolderMutation = useCreateFolder();
 	const { startCompose, closeSidebar } = useUIStore();
 	const { data: currentMailbox } = useMailbox(mailboxId);
@@ -120,29 +137,69 @@ export default function Sidebar() {
 		closeSidebar();
 	};
 
+	const handleSwitchMailbox = (targetId: string) => {
+		closeSidebar();
+		if (targetId === mailboxId) return;
+		// Preserve the current folder (e.g. stay on Sent when switching mailboxes).
+		navigate(`/mailbox/${targetId}/emails/${currentFolder || Folders.INBOX}`);
+	};
+
 	return (
 		<aside className="h-full w-64 bg-kumo-recessed flex flex-col shrink-0 border-r border-kumo-line">
-			{/* Back + identity */}
-			<div className="px-4 pt-4 pb-1">
-				<button
-					type="button"
-					onClick={() => {
-						navigate("/");
-						closeSidebar();
-					}}
-					className="flex items-center gap-1.5 text-kumo-subtle text-sm hover:text-kumo-default transition-colors mb-2.5 cursor-pointer bg-transparent border-0 p-0"
-				>
-					<CaretLeftIcon size={14} />
-					<span>Mailboxes</span>
-				</button>
-				<div className="px-1">
-					<div className="text-base font-semibold text-kumo-default truncate">
-						{displayName}
-					</div>
-					<div className="text-sm text-kumo-subtle truncate mt-0.5">
-						{currentMailbox?.email || mailboxId}
-					</div>
-				</div>
+			{/* Account switcher */}
+			<div className="px-3 pt-3 pb-1">
+				<DropdownMenu>
+					<DropdownMenu.Trigger
+						render={(props) => (
+							<button
+								type="button"
+								{...props}
+								className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left bg-transparent border-0 cursor-pointer hover:bg-kumo-tint transition-colors"
+							>
+								<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-kumo-fill text-xs font-bold text-kumo-default">
+									{displayName.charAt(0).toUpperCase()}
+								</div>
+								<div className="min-w-0 flex-1">
+									<div className="text-sm font-semibold text-kumo-default truncate">
+										{displayName}
+									</div>
+									<div className="text-xs text-kumo-subtle truncate">
+										{currentMailbox?.email || mailboxId}
+									</div>
+								</div>
+								<CaretUpDownIcon size={16} className="shrink-0 text-kumo-subtle" />
+							</button>
+						)}
+					/>
+					<DropdownMenu.Content align="start" className="w-64">
+						<DropdownMenu.Label>Mailboxes</DropdownMenu.Label>
+						{mailboxes.map((m) => (
+							<DropdownMenu.Item
+								key={m.id}
+								selected={m.id === mailboxId}
+								onClick={() => handleSwitchMailbox(m.id)}
+							>
+								<div className="min-w-0 flex-1">
+									<div className="truncate">{m.name || m.email}</div>
+									<div className="truncate text-xs text-kumo-subtle">
+										{m.email}
+									</div>
+								</div>
+								<SwitcherUnreadBadge mailboxId={m.id} />
+							</DropdownMenu.Item>
+						))}
+						<DropdownMenu.Separator />
+						<DropdownMenu.Item
+							icon={<ListBulletsIcon size={16} />}
+							onClick={() => {
+								closeSidebar();
+								navigate("/mailboxes");
+							}}
+						>
+							All mailboxes
+						</DropdownMenu.Item>
+					</DropdownMenu.Content>
+				</DropdownMenu>
 			</div>
 
 			{/* Compose */}

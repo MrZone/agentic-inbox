@@ -13,8 +13,16 @@
 		// Production deploys must also define POLICY_AUD and TEAM_DOMAIN.
 		// TEAM_DOMAIN may be the base Access URL or the full /cdn-cgi/access/certs URL.
 		// The worker now fails closed outside local development if Access is not configured.
-		"DOMAINS": "agentic-inbox.zqx10104.workers.dev",
-		"EMAIL_ADDRESSES": ["support@introvideo.io","support@nanoimg.ai", "support@cluesbysamanswer.com", "support@whisperweb.net", "support@vidprompt.ai", "support@psltester.com"]
+		// Domains offered in the "New Mailbox" @domain dropdown. Comma-separated.
+		"DOMAINS": "introvideo.io,nanoimg.ai,cluesbysamanswer.com,whisperweb.net,vidprompt.ai,psltester.com",
+		// Left empty on purpose: mailboxes are now created/managed via the UI
+		// (POST /api/v1/mailboxes) instead of this hardcoded allowlist, so new
+		// mailboxes on domains already listed above don't require a redeploy.
+		"EMAIL_ADDRESSES": [],
+		// Mailbox the home page ("/") redirects to. Falls back to the first mailbox if unset/unknown.
+		"DEFAULT_MAILBOX": "support@introvideo.io",
+		// Feishu custom bot webhook URL. New-mail notifications are skipped when empty.
+		"FEISHU_WEBHOOK_URL": "https://open.feishu.cn/open-apis/bot/v2/hook/a6bde040-a869-492e-b2bd-c3a09513af82"
 	},
 	"send_email": [
 		{

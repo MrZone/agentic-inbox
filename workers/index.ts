@@ -8,6 +8,7 @@ import PostalMime from "postal-mime";
 import { z } from "zod";
 import { sendEmail } from "./email-sender";
 import { storeAttachments, type StoredAttachment } from "./lib/attachments";
+import { notifyFeishuNewEmail } from "./lib/feishu";
 import {
 	validateSender,
 	SenderValidationError,
@@ -88,8 +89,9 @@ app.use("/api/v1/mailboxes/:mailboxId/*", requireMailbox);
 app.get("/api/v1/config", (c) => {
 	const domainsRaw = c.env.DOMAINS || "";
 	const domains = domainsRaw.split(",").map((d) => d.trim()).filter(Boolean);
-	const emailAddresses = c.env.EMAIL_ADDRESSES ?? [];
-	return c.json({ domains, emailAddresses });
+	const emailAddresses = (c.env.EMAIL_ADDRESSES ?? []) as string[];
+	const defaultMailbox = c.env.DEFAULT_MAILBOX || emailAddresses[0] || null;
+	return c.json({ domains, emailAddresses, defaultMailbox });
 });
 
 // -- Mailboxes ------------------------------------------------------
@@ -418,6 +420,18 @@ async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env
 		in_reply_to: inReplyTo, email_references: emailReferences.length > 0 ? JSON.stringify(emailReferences) : null,
 		thread_id: threadId, message_id: originalMessageId, raw_headers: JSON.stringify(parsedEmail.headers),
 	}, attachmentData);
+
+	// Skip notifying for blocked senders routed to spam — keep the Feishu
+	// channel signal-only. Best-effort: never let this affect email ingestion.
+	if (targetFolder !== Folders.SPAM) {
+		ctx.waitUntil(
+			notifyFeishuNewEmail(env, {
+				mailboxId,
+				sender: senderAddress,
+				subject: parsedEmail.subject || "",
+			}),
+		);
+	}
 
 	// Blocked senders are routed to spam and never auto-drafted.
 	// Check whether auto-draft is enabled for this mailbox before triggering the agent.
