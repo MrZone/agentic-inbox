@@ -10,6 +10,7 @@ import {
 	Input,
 	Loader,
 	Text,
+	Tooltip,
 	useKumoToastManager,
 } from "@cloudflare/kumo";
 import { EnvelopeIcon, PlusIcon, TrashIcon } from "@phosphor-icons/react";
@@ -22,18 +23,36 @@ import {
 	useDeleteMailbox,
 	useMailboxes,
 } from "~/queries/mailboxes";
-import { useFolders } from "~/queries/folders";
+import { useMailboxUnreadCounts } from "~/queries/folders";
 import { queryKeys } from "~/queries/keys";
 
-/** Shows the total unread count across all folders for a given mailbox. */
+/**
+ * Shows the unread count for a mailbox, split into the primary (non-spam)
+ * count and a de-emphasized spam count — spam unread shouldn't compete
+ * visually with mail that actually needs attention.
+ */
 function MailboxUnreadBadge({ mailboxId }: { mailboxId: string }) {
-	const { data: folders = [] } = useFolders(mailboxId);
-	const total = folders.reduce((sum, f) => sum + (f.unreadCount ?? 0), 0);
-	if (total === 0) return null;
+	const { nonSpamCount, spamCount } = useMailboxUnreadCounts(mailboxId);
+	if (nonSpamCount === 0 && spamCount === 0) return null;
 	return (
-		<Badge variant="secondary" aria-label={`${total} unread`}>
-			{total > 99 ? "99+" : total}
-		</Badge>
+		<div className="flex items-center gap-1 shrink-0">
+			{nonSpamCount > 0 && (
+				<Badge variant="secondary" aria-label={`${nonSpamCount} unread`}>
+					{nonSpamCount > 99 ? "99+" : nonSpamCount}
+				</Badge>
+			)}
+			{spamCount > 0 && (
+				<Tooltip content={`${spamCount} unread in Spam`} asChild>
+					<Badge
+						variant="outline"
+						className="text-kumo-subtle border-kumo-line"
+						aria-label={`${spamCount} unread in Spam`}
+					>
+						{spamCount > 99 ? "99+" : spamCount} spam
+					</Badge>
+				</Tooltip>
+			)}
+		</div>
 	);
 }
 

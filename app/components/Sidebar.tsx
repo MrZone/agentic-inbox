@@ -18,19 +18,41 @@ import {
 import { useMemo, useState } from "react";
 import { NavLink, useNavigate, useParams } from "react-router";
 import { Folders, SYSTEM_FOLDER_IDS } from "shared/folders";
-import { useCreateFolder, useFolders } from "~/queries/folders";
+import {
+	useCreateFolder,
+	useFolders,
+	useMailboxUnreadCounts,
+} from "~/queries/folders";
 import { useMailbox, useMailboxes } from "~/queries/mailboxes";
 import { useUIStore } from "~/hooks/useUIStore";
 
-/** Shows the total unread count across all folders for a given mailbox. */
+/**
+ * Shows the unread count for a mailbox, split into the primary (non-spam)
+ * count and a de-emphasized spam count — spam unread shouldn't compete
+ * visually with mail that actually needs attention.
+ */
 function SwitcherUnreadBadge({ mailboxId }: { mailboxId: string }) {
-	const { data: folders = [] } = useFolders(mailboxId);
-	const total = folders.reduce((sum, f) => sum + (f.unreadCount ?? 0), 0);
-	if (total === 0) return null;
+	const { nonSpamCount, spamCount } = useMailboxUnreadCounts(mailboxId);
+	if (nonSpamCount === 0 && spamCount === 0) return null;
 	return (
-		<Badge variant="secondary" aria-label={`${total} unread`}>
-			{total > 99 ? "99+" : total}
-		</Badge>
+		<div className="flex items-center gap-1 shrink-0">
+			{nonSpamCount > 0 && (
+				<Badge variant="secondary" aria-label={`${nonSpamCount} unread`}>
+					{nonSpamCount > 99 ? "99+" : nonSpamCount}
+				</Badge>
+			)}
+			{spamCount > 0 && (
+				<Tooltip content={`${spamCount} unread in Spam`} asChild>
+					<Badge
+						variant="outline"
+						className="text-kumo-subtle border-kumo-line"
+						aria-label={`${spamCount} unread in Spam`}
+					>
+						{spamCount > 99 ? "99+" : spamCount} spam
+					</Badge>
+				</Tooltip>
+			)}
+		</div>
 	);
 }
 
