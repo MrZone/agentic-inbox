@@ -38,11 +38,13 @@ function defineTool(def: {
 	description: string;
 	parameters: z.ZodType<any>;
 	execute: (...args: any[]) => Promise<any>;
+	needsApproval?: boolean;
 }) {
 	return {
 		description: def.description,
 		inputSchema: def.parameters,
 		execute: def.execute,
+		needsApproval: def.needsApproval,
 	};
 }
 
@@ -107,7 +109,24 @@ async function getSystemPrompt(env: Env, mailboxId: string): Promise<string> {
 	return DEFAULT_SYSTEM_PROMPT;
 }
 
-function createEmailTools(env: Env, mailboxId: string) {
+/**
+ * Appended to the system prompt for interactive chat only (not auto-draft).
+ * The operator discusses a reply first; drafts are saved only after they
+ * approve the draft tool call in the UI.
+ */
+const CHAT_MODE_PROMPT = `## Chat Mode (overrides the auto-draft rules above)
+You are now chatting with the operator, not handling an auto-triggered new email.
+- Follow the operator's requests directly. Summarizing, explaining and discussing emails is allowed. Answer in the operator's language.
+- When the operator wants to reply, first read the email and thread, then write the proposed reply text in the chat so they can review it. Iterate on it with them over multiple turns.
+- Only call draft_reply or draft_email when the operator clearly says the text is final and asks you to create the draft. Use the latest agreed text exactly as the body.
+- Draft tool calls require the operator's approval in the UI. If they reject one, ask what to change instead of calling the tool again.
+- The draft body itself must still be plain email text only: no markdown, no commentary.`;
+
+function createEmailTools(
+	env: Env,
+	mailboxId: string,
+	opts: { requireDraftApproval?: boolean } = {},
+) {
 	return {
 		list_emails: defineTool({
 			description:
@@ -177,6 +196,7 @@ function createEmailTools(env: Env, mailboxId: string) {
 		}),
 
 		draft_email: defineTool({
+			needsApproval: opts.requireDraftApproval,
 			description:
 				"Draft a new email (not a reply) and save it to the Drafts folder. This does NOT send — it saves a draft for the operator to review. Use this for composing new outbound emails. Write the body as plain text — no HTML tags.",
 			parameters: z.object({
@@ -201,6 +221,7 @@ function createEmailTools(env: Env, mailboxId: string) {
 		}),
 
 		draft_reply: defineTool({
+			needsApproval: opts.requireDraftApproval,
 			description:
 				"Draft a reply to an existing email and save it to the Drafts folder. This does NOT send — it saves a draft for the operator to review and send from the UI. Write the body as plain text — no HTML tags.",
 			parameters: z.object({
@@ -273,12 +294,21 @@ function createEmailTools(env: Env, mailboxId: string) {
 // SEND_EMAIL binding shape and the AIChatAgent constraint.  The actual env
 // is fully typed inside the tools via the closure.
 export class EmailAgent extends AIChatAgent<any> {
-	async onChatMessage(onFinish: any) {
+	async onChatMessage(onFinish: any, options?: { body?: Record<string, unknown> }) {
 		const env = this.env as Env;
 		const mailboxId = this.name;
 		const workersai = createWorkersAI({ binding: env.AI });
-		const tools = createEmailTools(env, mailboxId);
-		const systemPrompt = await getSystemPrompt(env, mailboxId);
+		const tools = createEmailTools(env, mailboxId, { requireDraftApproval: true });
+		let systemPrompt = `${await getSystemPrompt(env, mailboxId)}\n\n${CHAT_MODE_PROMPT}`;
+
+		// The client sends the email open in the UI so "this email" resolves.
+		const currentEmailId = options?.body?.currentEmailId;
+		if (typeof currentEmailId === "string" && currentEmailId) {
+			systemPrompt += `
+
+## Current Context
+The operator is currently viewing the email with ID "${currentEmailId}". When they say "this email", "this thread" or similar, they mean this one: read it with get_email, and use get_thread for the full conversation. When replying to a thread, reply to the latest message from the other party.`;
+		}
 
 		const result = streamText({
 			model: workersai("@cf/moonshotai/kimi-k2.5"),

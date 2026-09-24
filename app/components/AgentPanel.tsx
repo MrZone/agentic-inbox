@@ -17,12 +17,14 @@ import {
 	CheckCircleIcon,
 	StopIcon,
 	PencilSimpleIcon,
+	XCircleIcon,
 } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useUIStore } from "~/hooks/useUIStore";
+import api from "~/services/api";
 import type { UIMessage } from "ai";
 
 const TOOL_LABELS: Record<string, { label: string; icon: React.ReactNode }> = {
@@ -79,12 +81,21 @@ function ToolCallBadge({
 		state === "output-available" ||
 		state === "result" ||
 		state === "output-error";
+	const isDenied = state === "output-denied";
 
 	return (
 		<div className="flex items-center gap-1.5 py-1 px-2 rounded bg-kumo-fill/50 text-xs">
 			<span className="text-kumo-brand">{info.icon}</span>
-			<span className="text-kumo-strong">{info.label}</span>
-			{isDone ? (
+			<span className="text-kumo-strong">
+				{isDenied ? `${info.label} (rejected)` : info.label}
+			</span>
+			{isDenied ? (
+				<XCircleIcon
+					size={12}
+					weight="fill"
+					className="text-kumo-subtle ml-auto"
+				/>
+			) : isDone ? (
 				<CheckCircleIcon
 					size={12}
 					weight="fill"
@@ -103,11 +114,53 @@ function getToolNameFromPart(part: UIMessage["parts"][number]): string | null {
 	return null;
 }
 
-function hasDraftReplyTool(message: UIMessage): boolean {
-	return message.parts.some((part) => {
-		const toolName = getToolNameFromPart(part);
-		return toolName === "draft_reply";
-	});
+const DRAFT_TOOLS = new Set(["draft_reply", "draft_email"]);
+
+/** Draft tools need operator approval: show the proposed draft with confirm / reject. */
+function DraftApprovalCard({
+	input,
+	disabled,
+	onRespond,
+}: {
+	input: { to?: string; subject?: string; body?: string };
+	disabled: boolean;
+	onRespond: (approved: boolean) => void;
+}) {
+	return (
+		<div className="w-full rounded-lg border border-kumo-line bg-kumo-elevated text-xs overflow-hidden">
+			<div className="px-3 py-2 border-b border-kumo-line space-y-0.5">
+				<div className="text-kumo-subtle">
+					To: <span className="text-kumo-strong">{input.to}</span>
+				</div>
+				<div className="text-kumo-subtle">
+					Subject:{" "}
+					<span className="text-kumo-strong">{input.subject}</span>
+				</div>
+			</div>
+			<div className="px-3 py-2 whitespace-pre-wrap break-words text-kumo-default text-[13px] leading-relaxed max-h-64 overflow-y-auto">
+				{input.body}
+			</div>
+			<div className="flex gap-1.5 px-3 py-2 border-t border-kumo-line">
+				<Button
+					variant="primary"
+					size="sm"
+					icon={<CheckCircleIcon size={14} />}
+					onClick={() => onRespond(true)}
+					disabled={disabled}
+				>
+					Create draft
+				</Button>
+				<Button
+					variant="secondary"
+					size="sm"
+					onClick={() => onRespond(false)}
+					disabled={disabled}
+				>
+					Keep editing
+				</Button>
+			</div>
+		</div>
+	);
 }
 
 function DraftActions({
@@ -134,12 +187,14 @@ function DraftActions({
 
 function MessageBubble({
 	message,
-	onAction,
 	isStreaming,
+	onApprovalResponse,
+	onEditDraft,
 }: {
 	message: UIMessage;
-	onAction?: (action: string) => void;
 	isStreaming: boolean;
+	onApprovalResponse: (approvalId: string, approved: boolean) => void;
+	onEditDraft: (draftId: string, toolName: string) => void;
 }) {
 	const isUser = message.role === "user";
 
@@ -271,23 +326,46 @@ function MessageBubble({
 					}
 					const toolName = getToolNameFromPart(part);
 					if (toolName) {
+						const toolPart = part as any;
+						const state: string = toolPart.state ?? "running";
+						if (
+							DRAFT_TOOLS.has(toolName) &&
+							state === "approval-requested"
+						) {
+							return (
+								<DraftApprovalCard
+									key={key}
+									input={toolPart.input ?? {}}
+									disabled={isStreaming}
+									onRespond={(approved) =>
+										onApprovalResponse(
+											toolPart.approval.id,
+											approved,
+										)
+									}
+								/>
+							);
+						}
+						const draftId: string | undefined =
+							toolPart.output?.draftId;
 						return (
-							<ToolCallBadge
-								key={key}
-								toolName={toolName}
-								state={(part as any).state ?? "running"}
-							/>
+							<div key={key} className="flex flex-col gap-1 w-full">
+								<ToolCallBadge toolName={toolName} state={state} />
+								{DRAFT_TOOLS.has(toolName) &&
+									state === "output-available" &&
+									draftId && (
+										<DraftActions
+											onEdit={() =>
+												onEditDraft(draftId, toolName)
+											}
+											disabled={isStreaming}
+										/>
+									)}
+							</div>
 						);
 					}
 					return null;
 				})}
-				{/* Show action buttons for draft replies */}
-				{!isUser && hasDraftReplyTool(message) && onAction && (
-					<DraftActions
-						onEdit={() => onAction("edit")}
-						disabled={isStreaming}
-					/>
-				)}
 			</div>
 		</div>
 	);
@@ -305,11 +383,24 @@ function AgentChatConnected({
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const [inputValue, setInputValue] = useState("");
-	const { startCompose } = useUIStore();
+	const { startCompose, selectedEmailId } = useUIStore();
 
 	const agent = useAgent({ agent: "EmailAgent", name: mailboxId });
-	const { messages, sendMessage, status, setMessages, stop } =
-		useAgentChat({ agent });
+	// Tell the agent which email is open so "this email" resolves.
+	// Read from the store at send time so the value is never stale.
+	const {
+		messages,
+		sendMessage,
+		status,
+		setMessages,
+		stop,
+		addToolApprovalResponse,
+	} = useAgentChat({
+		agent,
+		body: () => ({
+			currentEmailId: useUIStore.getState().selectedEmailId,
+		}),
+	});
 	const isStreaming = status === "streaming" || status === "submitted";
 
 	useEffect(() => {
@@ -336,11 +427,34 @@ function AgentChatConnected({
 		}
 	};
 
-	const suggestedPrompts = [
-		"Show me the latest inbox emails",
-		"Any unread emails?",
-		"Draft a response to the latest email",
-	];
+	const suggestedPrompts = selectedEmailId
+		? [
+				"Summarize this email",
+				"Help me reply to this email",
+				"Any unread emails?",
+			]
+		: [
+				"Show me the latest inbox emails",
+				"Any unread emails?",
+				"Draft a response to the latest email",
+			];
+
+	// Open the saved draft in the composer. Fetch it so the composer gets
+	// the stored HTML body (incl. quoted original) and threading fields.
+	const handleEditDraft = async (draftId: string, toolName: string) => {
+		try {
+			const draftEmail = await api.getEmail(mailboxId, draftId);
+			startCompose({
+				mode: toolName === "draft_reply" ? "reply" : "new",
+				originalEmail: null,
+				draftEmail,
+			});
+		} catch {
+			sendMessage({
+				text: "I couldn't open that draft. Show me what you have so I can modify it.",
+			});
+		}
+	};
 
 	return (
 		<div className="flex flex-col h-full">
@@ -410,47 +524,10 @@ function AgentChatConnected({
 								key={msg.id}
 								message={msg}
 								isStreaming={isStreaming}
-							onAction={(action) => {
-								if (action === "edit") {
-										// Extract draft data from the draft_reply tool result
-										let draftData: {
-											to?: string;
-											subject?: string;
-											body?: string;
-											id?: string;
-										} | null = null;
-										for (const part of msg.parts) {
-											if (
-												(part as any).toolName === "draft_reply" &&
-												(part as any).result
-											) {
-												draftData = (part as any).result;
-												break;
-											}
-										}
-										if (draftData) {
-											const draftEmail = {
-												id: draftData.id || "",
-												subject: draftData.subject || "",
-												sender: mailboxId,
-												recipient: draftData.to || "",
-												date: new Date().toISOString(),
-												read: true,
-												starred: false,
-												body: draftData.body || "",
-											};
-											startCompose({
-												mode: "reply",
-												originalEmail: null,
-												draftEmail,
-											});
-										} else {
-											sendMessage({
-												text: "Let me edit this draft first. Show me what you have so I can modify it.",
-											});
-										}
-									}
-								}}
+							onApprovalResponse={(id, approved) =>
+								addToolApprovalResponse({ id, approved })
+							}
+							onEditDraft={handleEditDraft}
 							/>
 						))}
 						{isStreaming && (
