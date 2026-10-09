@@ -12,7 +12,7 @@ import {
 import { createWorkersAI } from "workers-ai-provider";
 import { z } from "zod";
 import type { EmailFull, EmailMetadata } from "../lib/schemas";
-import { verifyDraft, isPromptInjection } from "../lib/ai";
+import { isPromptInjection } from "../lib/ai";
 import {
 	getMailboxStub,
 	stripHtmlToText,
@@ -245,7 +245,6 @@ function createEmailTools(
 					subject,
 					body,
 					isPlainText: true,
-					runVerifyDraft: true,
 				});
 			},
 		}),
@@ -507,37 +506,31 @@ Based on the email content and thread context above, draft a reply using draft_r
 			);
 
 			if (!draftToolCalled && result.text.trim()) {
-				// Model generated a draft inline as text -- verify with AI
-				const sanitizedText = await verifyDraft(env.AI, result.text.trim());
-				if (!sanitizedText) {
-					// Inline text was entirely agent commentary, skip
-				} else {
-					const draftId = crypto.randomUUID();
-					const draftStub = getMailboxStub(env, emailData.mailboxId);
-					const reSubject = emailData.subject.startsWith("Re:")
-						? emailData.subject
-						: `Re: ${emailData.subject}`;
-					await draftStub.createEmail(
-						Folders.DRAFT,
-						{
-							id: draftId,
-							subject: reSubject,
-							sender: emailData.mailboxId.toLowerCase(),
-							recipient: emailData.sender.toLowerCase(),
-							date: new Date().toISOString(),
-						// verifyDraft may return plain text or HTML depending on its
-						// code path. Only wrap in textToHtml if it's plain text.
-						body: /<[a-z][\s\S]*>/i.test(sanitizedText)
-							? sanitizedText
-							: textToHtml(sanitizedText),
+				// Model generated a draft inline as text -- save it as a draft
+				const draftText = result.text.trim();
+				const draftId = crypto.randomUUID();
+				const draftStub = getMailboxStub(env, emailData.mailboxId);
+				const reSubject = emailData.subject.startsWith("Re:")
+					? emailData.subject
+					: `Re: ${emailData.subject}`;
+				await draftStub.createEmail(
+					Folders.DRAFT,
+					{
+						id: draftId,
+						subject: reSubject,
+						sender: emailData.mailboxId.toLowerCase(),
+						recipient: emailData.sender.toLowerCase(),
+						date: new Date().toISOString(),
+						// The model may emit plain text or HTML. Only wrap plain text.
+						body: /<[a-z][\s\S]*>/i.test(draftText)
+							? draftText
+							: textToHtml(draftText),
 						in_reply_to: emailData.emailId,
-							email_references: null,
-							thread_id: emailData.threadId,
-						},
-						[],
-					);
-					// Inline text saved as draft
-				}
+						email_references: null,
+						thread_id: emailData.threadId,
+					},
+					[],
+				);
 			}
 
 			// Persist the conversation into the agent's chat history

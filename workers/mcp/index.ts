@@ -206,7 +206,6 @@ export class EmailMCP extends McpAgent<Env> {
 					subject,
 					body: bodyHtml,
 					isPlainText: false,
-					runVerifyDraft: true,
 				});
 				return mcpResult(result);
 			},
@@ -241,7 +240,6 @@ export class EmailMCP extends McpAgent<Env> {
 					subject,
 					body: bodyHtml,
 					isPlainText: false,
-					runVerifyDraft: true,
 					in_reply_to,
 					thread_id,
 				});
