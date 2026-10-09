@@ -11,6 +11,9 @@ import { Folders } from "../../shared/folders";
 import type { Env } from "../types";
 import { applyMigrations, mailboxMigrations } from "./migrations";
 
+const SEND_LIMIT_PER_HOUR = 50;
+const SEND_LIMIT_PER_DAY = 300;
+
 /**
  * SQL expression to normalize email subjects by stripping common
  * reply/forward prefixes (Re:, Fwd:, FW:, AW:, WG:, Réf:, SV:).
@@ -787,30 +790,30 @@ export class MailboxDO extends DurableObject<Env> {
 
 	/**
 	 * Check if the mailbox has exceeded the send rate limit.
-	 * Limits: 20 emails per hour, 100 per day per mailbox.
+	 * Limits: SEND_LIMIT_PER_HOUR per hour, SEND_LIMIT_PER_DAY per day per mailbox.
 	 * Returns null if under limit, or an error message string if exceeded.
 	 */
 	async checkSendRateLimit(): Promise<string | null> {
-		const hourRow = [...this.ctx.storage.sql.exec(
-			`SELECT COUNT(*) as cnt FROM emails
-			 WHERE folder_id = ?1
-			   AND date >= datetime('now', '-1 hour')`,
-			Folders.SENT,
-		)][0] as { cnt: number } | undefined;
+		// `date` is stored as an ISO string (toISOString), so the cutoff must be
+		// ISO too — SQLite's datetime('now') format doesn't compare correctly.
+		const countSentSince = (ms: number) => {
+			const since = new Date(Date.now() - ms).toISOString();
+			const row = [...this.ctx.storage.sql.exec(
+				`SELECT COUNT(*) as cnt FROM emails
+				 WHERE folder_id = ?1
+				   AND date >= ?2`,
+				Folders.SENT,
+				since,
+			)][0] as { cnt: number } | undefined;
+			return row?.cnt ?? 0;
+		};
 
-		if ((hourRow?.cnt ?? 0) >= 20) {
-			return "Rate limit exceeded: max 20 emails per hour per mailbox";
+		if (countSentSince(60 * 60 * 1000) >= SEND_LIMIT_PER_HOUR) {
+			return `Rate limit exceeded: max ${SEND_LIMIT_PER_HOUR} emails per hour per mailbox`;
 		}
 
-		const dayRow = [...this.ctx.storage.sql.exec(
-			`SELECT COUNT(*) as cnt FROM emails
-			 WHERE folder_id = ?1
-			   AND date >= datetime('now', '-1 day')`,
-			Folders.SENT,
-		)][0] as { cnt: number } | undefined;
-
-		if ((dayRow?.cnt ?? 0) >= 100) {
-			return "Rate limit exceeded: max 100 emails per day per mailbox";
+		if (countSentSince(24 * 60 * 60 * 1000) >= SEND_LIMIT_PER_DAY) {
+			return `Rate limit exceeded: max ${SEND_LIMIT_PER_DAY} emails per day per mailbox`;
 		}
 
 		return null;
