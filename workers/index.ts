@@ -8,7 +8,7 @@ import PostalMime from "postal-mime";
 import { z } from "zod";
 import { sendEmail } from "./email-sender";
 import { storeAttachments, type StoredAttachment } from "./lib/attachments";
-import { notifyFeishuNewEmail } from "./lib/feishu";
+import { buildBodyPreview, notifyFeishuNewEmail } from "./lib/feishu";
 import {
 	validateSender,
 	SenderValidationError,
@@ -428,7 +428,10 @@ async function receiveEmail(event: { raw: ReadableStream; rawSize: number }, env
 			notifyFeishuNewEmail(env, {
 				mailboxId,
 				sender: senderAddress,
+				senderName: parsedEmail.from?.name || undefined,
 				subject: parsedEmail.subject || "",
+				preview: buildBodyPreview(parsedEmail.text, parsedEmail.html),
+				attachmentCount: attachmentData.filter((a) => a.disposition !== "inline").length,
 			}),
 		);
 	}
